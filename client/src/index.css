@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* chrome & ink (from the validated reference palette, light mode) */
+  --surface-1: #fcfcfb;
+  --page: #f9f9f7;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.1);
+
+  /* brand / sequential blue ramp (sequential = one hue, light -> dark) */
+  --blue: #2a78d6;
+  --blue-600: #184f95;
+  --seq-1: #cde2fb;
+  --seq-2: #9ec5f4;
+  --seq-3: #5598e7;
+  --seq-4: #2a78d6;
+  --seq-5: #1c5cab;
+  --seq-6: #104281;
+
+  /* categorical accents for demand-type chips (fixed order) */
+  --cat-new: #2a78d6; /* blue */
+  --cat-enh: #1baf7a; /* aqua */
+  --cat-cap: #4a3aa7; /* violet */
+  --cat-exp: #eb6834; /* orange */
+
+  /* status */
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --critical: #d03b3b;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* thin recessive scrollbars for the chat thread */
+.thread::-webkit-scrollbar {
+  width: 8px;
+}
+.thread::-webkit-scrollbar-thumb {
+  background: var(--grid);
+  border-radius: 8px;
+}
