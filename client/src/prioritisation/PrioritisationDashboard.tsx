@@ -243,8 +243,12 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold">Portfolio Heatmap (Count of Demands)</h3>
-                  <p className="text-xs text-slate-400">Region / country × domain · click a cell to drill down</p>
+                  <h3 className="text-sm font-semibold">
+                    Portfolio Heatmap ({colorBy === 'score' ? 'Avg. Priority Score' : 'Count of Demands'})
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Region / country × domain · cell shows {colorBy === 'score' ? 'average priority score' : 'demand count'} · click a cell to drill down
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                   <label className="flex items-center gap-1.5">
@@ -398,12 +402,14 @@ function HeatTable({
   const renderCell = (cellData: { count: number; value: number; scoreSum: number }, country: string, domain: string, clickable: boolean) => {
     const s = colorFor(cellData);
     const isSel = clickable && selectedCell?.country === country && selectedCell?.domain === domain;
+    const avg = cellData.count ? Math.round(cellData.scoreSum / cellData.count) : 0;
+    const displayNum = colorBy === 'score' ? avg : cellData.count;
     return (
       <td key={domain} className="p-0">
         <button
           disabled={!clickable}
           onClick={() => onCell(country, domain)}
-          title={`${country} · ${domain} — ${cellData.count} demand${cellData.count === 1 ? '' : 's'}`}
+          title={`${country} · ${domain} — ${cellData.count} demand${cellData.count === 1 ? '' : 's'}${cellData.count ? `, avg score ${avg}` : ''}`}
           className="grid h-12 w-full place-items-center rounded-md text-center leading-tight transition"
           style={{
             background: s.bg,
@@ -414,7 +420,7 @@ function HeatTable({
         >
           {cellData.count > 0 && (
             <span>
-              <span className="block text-sm font-semibold tabular-nums">{cellData.count}</span>
+              <span className="block text-sm font-semibold tabular-nums">{displayNum}</span>
               {showValues && <span className="block text-[10px] tabular-nums opacity-70">{money(cellData.value)}</span>}
             </span>
           )}
@@ -502,6 +508,7 @@ function HeatTable({
 }
 
 function DetailPanel({ demand: d, onClose }: { demand: Demand; onClose: () => void }) {
+  const [showFull, setShowFull] = useState(false);
   return (
     <aside className="w-[380px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between">
@@ -580,10 +587,122 @@ function DetailPanel({ demand: d, onClose }: { demand: Demand; onClose: () => vo
         </div>
       </div>
 
-      <button className="mt-4 w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+      <button
+        onClick={() => setShowFull(true)}
+        className="mt-4 w-full rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+      >
         View Full Demand Record →
       </button>
+
+      {showFull && <FullRecordModal demand={d} onClose={() => setShowFull(false)} />}
     </aside>
+  );
+}
+
+function FullRecordModal({ demand: d, onClose }: { demand: Demand; onClose: () => void }) {
+  const rows: [string, ReactNode][] = [
+    ['Demand ID', d.id],
+    ['Title', d.title],
+    ['Status', d.status],
+    ['Priority Band', `${d.band} Priority`],
+    ['Priority Score', `${d.priorityScore} / 100`],
+    ['Proactive Proposal', d.proactive ? 'Yes' : 'No'],
+    ['Region', d.region],
+    ['Country', d.country],
+    ['Domain', d.domain],
+    ['Account', d.account],
+    ['Account Owner', d.accountOwner],
+    ['Est. Annual Value', moneyFull(d.value)],
+    ['ROI Potential', `${d.roiPotential.toFixed(1)}x`],
+    ['Quick Win', d.quickWin ? 'Yes' : 'No'],
+    ['Strategic Impact', d.strategicImpact],
+    ['Business Value', d.businessValue],
+    ['Ease of Implementation', d.ease],
+    ['Confidence', d.confidence],
+    ['Strategic Fit', d.strategicFit],
+    ['Solution Areas', d.solutionAreas.join(', ')],
+    ['Tags', d.tags.join(', ')],
+    ['Attachments', `${d.attachments} files`],
+    ['Submitted By', d.accountOwner],
+    ['Submitted On', fmtDate(d.submittedOn)],
+    ['Last Updated', fmtDate(d.lastUpdated)],
+  ];
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold tabular-nums text-slate-400">{d.id}</span>
+              <Chip className={bandChip[d.band]}>{d.band} Priority</Chip>
+              <Chip className={statusChip[d.status]}>{d.status}</Chip>
+            </div>
+            <h2 className="mt-1 text-lg font-semibold leading-snug">{d.title}</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close">✕</button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-5">
+          <dl className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
+            {rows.map(([label, value]) => (
+              <div key={label} className="border-b border-slate-100 pb-2">
+                <dt className="text-[11px] uppercase tracking-wide text-slate-400">{label}</dt>
+                <dd className="mt-0.5 text-sm text-slate-800">{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <div className="mt-5">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Executive Summary</div>
+            <p className="mt-1 text-sm leading-relaxed text-slate-700">{d.executiveSummary}</p>
+          </div>
+
+          <div className="mt-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recommended Solution Approach</div>
+            <p className="mt-1 text-sm leading-relaxed text-slate-700">{d.recommendedApproach}</p>
+          </div>
+
+          <div className="mt-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Recommended Skills / Resource Roles</div>
+            <table className="mt-1.5 w-full text-xs">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-wide text-slate-400">
+                  <th className="py-1 font-medium">Role</th>
+                  <th className="py-1 font-medium">Key Skills</th>
+                  <th className="py-1 text-center font-medium">FTE</th>
+                  <th className="py-1 text-right font-medium">Phase</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.roles.map((r) => (
+                  <tr key={r.role} className="border-t border-slate-100">
+                    <td className="py-1.5 pr-2 font-medium text-slate-700">{r.role}</td>
+                    <td className="py-1.5 pr-2 text-slate-500">{r.skills}</td>
+                    <td className="py-1.5 text-center tabular-nums text-slate-500">{r.fte}</td>
+                    <td className="py-1.5 text-right text-slate-500">{r.phase}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-200 px-6 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -619,16 +738,16 @@ function HeaderBtn({ icon, children }: { icon: string; children?: ReactNode }) {
 }
 function Kpi({ label, value, sub, delta, icon, tint }: { label: string; value: string; sub?: string; delta: string; icon: string; tint: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="text-xs text-slate-500">{label}</div>
-        <span className="grid h-6 w-6 place-items-center rounded-lg text-xs" style={{ background: `color-mix(in srgb, ${tint} 14%, white)`, color: tint }}>{icon}</span>
+    <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 truncate text-xs text-slate-500" title={label}>{label}</div>
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg text-xs" style={{ background: `color-mix(in srgb, ${tint} 14%, white)`, color: tint }}>{icon}</span>
       </div>
-      <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="text-2xl font-semibold tabular-nums">{value}</span>
-        {sub && <span className="text-xs text-slate-400">({sub})</span>}
+      <div className="mt-1 flex min-w-0 items-baseline gap-1">
+        <span className="truncate text-xl font-semibold leading-tight tracking-tight tabular-nums" title={value}>{value}</span>
+        {sub && <span className="shrink-0 text-xs text-slate-400">({sub})</span>}
       </div>
-      <div className="text-xs text-emerald-600">↑ {delta} vs prior period</div>
+      <div className="truncate text-[11px] text-emerald-600" title={`↑ ${delta} vs prior period`}>↑ {delta} vs prior period</div>
     </div>
   );
 }
@@ -650,9 +769,9 @@ function PageBtn({ children, disabled, onClick }: { children: ReactNode; disable
 }
 function ScoreCard({ label, value, suffix, accent }: { label: string; value: string; suffix?: string; accent?: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
-      <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`mt-0.5 text-sm font-semibold tabular-nums ${accent ?? 'text-slate-800'}`}>
+    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2">
+      <div className="truncate text-[10px] uppercase tracking-wide text-slate-400" title={label}>{label}</div>
+      <div className={`mt-0.5 truncate text-sm font-semibold tabular-nums ${accent ?? 'text-slate-800'}`} title={`${value}${suffix ?? ''}`}>
         {value}{suffix && <span className="text-xs font-normal text-slate-400">{suffix}</span>}
       </div>
     </div>

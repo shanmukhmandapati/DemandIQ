@@ -3,21 +3,18 @@ import { api } from './api';
 import type { MockUser } from './types';
 import { ChatView } from './components/ChatView';
 import { AssistantChat } from './components/AssistantChat';
-import { Tracker } from './components/Tracker';
 import { PrioritisationDashboard } from './prioritisation/PrioritisationDashboard';
 import { ChatHistory } from './components/ChatHistory';
 import { ActionLog } from './components/ActionLog';
 
 type View = 'new' | 'history' | 'tracker' | 'log';
 type IntakeTab = 'intake' | 'assistant';
-type TrackerTab = 'tracker' | 'prioritisation';
 
 export default function App() {
   const [users, setUsers] = useState<MockUser[]>([]);
   const [userId, setUserId] = useState('');
   const [view, setView] = useState<View>('new');
   const [intakeTab, setIntakeTab] = useState<IntakeTab>('intake');
-  const [trackerTab, setTrackerTab] = useState<TrackerTab>('tracker');
   const [activeConv, setActiveConv] = useState<string | null>(null);
   const [simFail, setSimFail] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -171,7 +168,6 @@ export default function App() {
                     onSubmitted={() => {
                       setRefresh((r) => r + 1);
                       setView('tracker');
-                      setTrackerTab('tracker');
                     }}
                   />
                 ) : (
@@ -192,23 +188,9 @@ export default function App() {
             />
           )}
           {user && view === 'tracker' && (
-            <>
-              <SubTabs
-                value={trackerTab}
-                onChange={setTrackerTab}
-                options={[
-                  { value: 'tracker', label: 'Tracker' },
-                  { value: 'prioritisation', label: 'Prioritisation' },
-                ]}
-              />
-              <div className="min-h-0 flex-1 overflow-auto">
-                {trackerTab === 'tracker' ? (
-                  <Tracker user={user} refreshKey={refresh} />
-                ) : (
-                  <PrioritisationDashboard onExit={() => setTrackerTab('tracker')} />
-                )}
-              </div>
-            </>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <PrioritisationDashboard onExit={() => setView('new')} />
+            </div>
           )}
           {user && view === 'log' && <ActionLog user={user} activeConversationId={activeConv} />}
         </main>
