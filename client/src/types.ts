@@ -4,10 +4,17 @@ export type DemandType =
   | 'capacity_request'
   | 'exploratory';
 
+export type Persona =
+  | 'Customer submitter'
+  | 'Customer approver / sponsor'
+  | 'NTT DATA Solution Lead'
+  | 'Platform Administrator';
+
 export interface MockUser {
   id: string;
   name: string;
   role: string;
+  persona: Persona;
   orgId: string;
   orgName: string;
 }

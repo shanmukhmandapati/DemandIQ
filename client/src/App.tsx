@@ -2,19 +2,16 @@ import { useEffect, useState } from 'react';
 import { api } from './api';
 import type { MockUser } from './types';
 import { ChatView } from './components/ChatView';
-import { AssistantChat } from './components/AssistantChat';
 import { PrioritisationDashboard } from './prioritisation/PrioritisationDashboard';
 import { ChatHistory } from './components/ChatHistory';
 import { ActionLog } from './components/ActionLog';
 
 type View = 'new' | 'history' | 'tracker' | 'log';
-type IntakeTab = 'intake' | 'assistant';
 
 export default function App() {
   const [users, setUsers] = useState<MockUser[]>([]);
   const [userId, setUserId] = useState('');
   const [view, setView] = useState<View>('new');
-  const [intakeTab, setIntakeTab] = useState<IntakeTab>('intake');
   const [activeConv, setActiveConv] = useState<string | null>(null);
   const [simFail, setSimFail] = useState(false);
   const [refresh, setRefresh] = useState(0);
@@ -70,8 +67,11 @@ export default function App() {
 
         <div className="ml-auto flex items-center gap-3">
           <div className="text-right">
-            <div className="text-xs text-muted">Signed in as</div>
-            <div className="text-sm font-medium">{user?.orgName}</div>
+            <div className="text-xs text-muted">{user?.persona ?? 'Signed in as'}</div>
+            <div className="text-sm font-medium">
+              {user?.name}
+              {user?.orgName ? ` · ${user.orgName}` : ''}
+            </div>
           </div>
           <select
             value={userId}
@@ -80,7 +80,7 @@ export default function App() {
           >
             {users.map((u) => (
               <option key={u.id} value={u.id}>
-                {u.name} — {u.orgName}
+                {u.persona} — {u.name} ({u.orgName})
               </option>
             ))}
           </select>
@@ -126,55 +126,30 @@ export default function App() {
         <TabItem label="Chat History" icon="🗨" active={view === 'history'} onClick={() => setView('history')} />
         <TabItem label="Demand Tracker" icon="▦" active={view === 'tracker'} onClick={() => setView('tracker')} />
         <TabItem label="Agent Action Log" icon="◔" active={view === 'log'} onClick={() => setView('log')} muted />
-        <div
-          className="ml-1 flex cursor-not-allowed items-center gap-2 px-3 py-3 text-sm text-muted opacity-60"
-          title="Coming soon"
-        >
-          <span>⧉</span>
-          <span>Microsoft Teams</span>
-          <span className="rounded-full bg-[var(--grid)] px-2 py-0.5 text-[10px] font-medium text-ink-2">
-            Soon
-          </span>
-        </div>
       </nav>
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <main className="flex flex-1 flex-col overflow-hidden bg-page">
           {user && view === 'new' && (
-            <>
-              <SubTabs
-                value={intakeTab}
-                onChange={setIntakeTab}
-                options={[
-                  { value: 'intake', label: 'Intake' },
-                  { value: 'assistant', label: 'Assistant' },
-                ]}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ChatView
+                key={`${userId}:${activeConv ?? 'fresh'}:${refresh}`}
+                user={user}
+                conversationId={activeConv}
+                refreshKey={refresh}
+                onConversationCreated={setActiveConv}
+                onNewConversation={startNew}
+                onOpenConversation={(id) => {
+                  setActiveConv(id);
+                  setView('new');
+                }}
+                onSubmitted={() => {
+                  setRefresh((r) => r + 1);
+                  setView('tracker');
+                }}
               />
-              <div className="min-h-0 flex-1 overflow-hidden">
-                {intakeTab === 'intake' ? (
-                  <ChatView
-                    key={`${userId}:${activeConv ?? 'fresh'}:${refresh}`}
-                    user={user}
-                    conversationId={activeConv}
-                    refreshKey={refresh}
-                    onConversationCreated={setActiveConv}
-                    onNewConversation={startNew}
-                    onOpenConversation={(id) => {
-                      setActiveConv(id);
-                      setView('new');
-                      setIntakeTab('intake');
-                    }}
-                    onSubmitted={() => {
-                      setRefresh((r) => r + 1);
-                      setView('tracker');
-                    }}
-                  />
-                ) : (
-                  <AssistantChat key={userId} user={user} />
-                )}
-              </div>
-            </>
+            </div>
           )}
           {user && view === 'history' && (
             <ChatHistory
@@ -183,7 +158,6 @@ export default function App() {
               onOpen={(id) => {
                 setActiveConv(id);
                 setView('new');
-                setIntakeTab('intake');
               }}
             />
           )}
@@ -194,34 +168,6 @@ export default function App() {
           )}
           {user && view === 'log' && <ActionLog user={user} activeConversationId={activeConv} />}
         </main>
-      </div>
-    </div>
-  );
-}
-
-function SubTabs<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { value: T; label: string }[];
-}) {
-  return (
-    <div className="flex items-center gap-1 border-b border-[var(--grid)] bg-surface px-4 py-2">
-      <div className="inline-flex rounded-lg border border-[var(--grid)] bg-page p-0.5">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            onClick={() => onChange(o.value)}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-              value === o.value ? 'bg-brand text-white shadow-sm' : 'text-ink-2 hover:text-ink'
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
       </div>
     </div>
   );

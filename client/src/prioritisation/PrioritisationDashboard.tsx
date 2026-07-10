@@ -141,7 +141,9 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
   const pageRows = tableRows.slice(page * PAGE, page * PAGE + PAGE);
   const pageCount = Math.max(1, Math.ceil(tableRows.length / PAGE));
 
-  const selected = selectedId ? DEMANDS.find((d) => d.id === selectedId) ?? null : tableRows[0] ?? null;
+  // The detail panel is closed until a demand is explicitly opened — either by
+  // clicking a heatmap cell (opens that cell's top demand) or a table row.
+  const selected = selectedId ? DEMANDS.find((d) => d.id === selectedId) ?? null : null;
 
   function applyFilters() {
     setApplied(staged);
@@ -215,15 +217,6 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
             <HeaderBtn icon="★">Saved Views</HeaderBtn>
             <HeaderBtn icon="⟳" />
             <HeaderBtn icon="⭳">Export</HeaderBtn>
-            <div className="ml-2 flex items-center gap-2 border-l border-slate-200 pl-3">
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">
-                AM
-              </div>
-              <div className="leading-tight">
-                <div className="text-sm font-medium">Alex Morgan</div>
-                <div className="text-xs text-slate-400">Portfolio Manager</div>
-              </div>
-            </div>
           </div>
         </header>
 
@@ -287,7 +280,10 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
                 onCell={(country, domain) => {
                   setCell({ country, domain });
                   setPage(0);
-                  setSelectedId(null);
+                  const top = pool
+                    .filter((d) => d.country === country && d.domain === domain)
+                    .sort((a, b) => b.priorityScore - a.priorityScore)[0];
+                  setSelectedId(top ? top.id : null);
                 }}
               />
             </div>
@@ -367,7 +363,7 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
           </div>
 
           {/* ---------- Detail panel ---------- */}
-          {selected && <DetailPanel demand={selected} onClose={() => setSelectedId('__none__')} key={selected.id} />}
+          {selected && <DetailPanel demand={selected} onClose={() => setSelectedId(null)} key={selected.id} />}
         </div>
       </div>
     </div>

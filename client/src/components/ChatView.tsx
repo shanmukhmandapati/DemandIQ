@@ -450,17 +450,17 @@ export function ChatView({
       </section>
 
       {/* ── Right rail: progress, prompts, insights ─────────────────── */}
-      <aside className="hidden w-80 shrink-0 flex-col gap-4 overflow-y-auto border-l border-[var(--grid)] bg-surface p-4 xl:flex">
+      <aside className="hidden w-72 shrink-0 flex-col gap-2.5 overflow-hidden border-l border-[var(--grid)] bg-surface p-3 xl:flex">
         <ProgressCard step={c?.step} missing={view?.missingMandatory.length ?? 7} />
 
         <Card title="Suggested prompts">
-          <div className="space-y-2">
+          <div className="space-y-1">
             {SUGGESTED_PROMPTS.map((p) => (
               <button
                 key={p}
                 disabled={busy || !c || c.step === 'submitted'}
                 onClick={() => send(p)}
-                className="flex w-full items-center justify-between gap-2 rounded-lg border border-[var(--grid)] px-3 py-2.5 text-left text-sm text-ink-2 transition hover:border-brand hover:text-brand disabled:opacity-50"
+                className="flex w-full items-center justify-between gap-2 rounded-md border border-[var(--grid)] px-2.5 py-1.5 text-left text-xs leading-snug text-ink-2 transition hover:border-brand hover:text-brand disabled:opacity-50"
               >
                 <span>{p}</span>
                 <span className="shrink-0 text-muted">→</span>
@@ -470,15 +470,15 @@ export function ChatView({
         </Card>
 
         <Card title="Insights you can ask">
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {INSIGHTS.map((p) => (
               <button
                 key={p}
                 disabled={busy || !c || c.step === 'submitted'}
                 onClick={() => send(p)}
-                className="flex w-full items-center gap-3 text-left text-sm text-ink-2 hover:text-brand disabled:opacity-50"
+                className="flex w-full items-center gap-2 text-left text-xs text-ink-2 hover:text-brand disabled:opacity-50"
               >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[color-mix(in_srgb,var(--brand)_10%,white)] text-brand">
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[color-mix(in_srgb,var(--brand)_10%,white)] text-[10px] text-brand">
                   ◈
                 </span>
                 <span>{p}</span>
@@ -604,16 +604,16 @@ function ProgressCard({ step, missing }: { step?: ConversationStep; missing: num
       title="Intake Progress"
       right={<span className="text-xs text-muted">Step {Math.min(current, INTAKE_STEPS.length)} of {INTAKE_STEPS.length}</span>}
     >
-      <div className="mb-4 h-1.5 w-full overflow-hidden rounded-full bg-[var(--grid)]">
+      <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--grid)]">
         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
       </div>
-      <ol className="space-y-3">
+      <ol className="space-y-1">
         {INTAKE_STEPS.map((label, i) => {
           const state = done || i < current - 1 ? 'done' : i === current - 1 ? 'active' : 'todo';
           return (
-            <li key={label} className="flex items-center gap-3">
+            <li key={label} className="flex items-center gap-2">
               <span
-                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${
+                className={`grid h-4 w-4 shrink-0 place-items-center rounded-full text-[9px] font-semibold ${
                   state === 'done'
                     ? 'bg-[var(--good-text)] text-white'
                     : state === 'active'
@@ -624,7 +624,7 @@ function ProgressCard({ step, missing }: { step?: ConversationStep; missing: num
                 {state === 'done' ? '✓' : i + 1}
               </span>
               <span
-                className={`text-sm ${
+                className={`text-xs ${
                   state === 'active' ? 'font-semibold text-brand' : state === 'done' ? 'text-ink' : 'text-muted'
                 }`}
               >
@@ -726,9 +726,9 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--grid)] bg-page p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{title}</h3>
+    <div className="rounded-lg border border-[var(--grid)] bg-page p-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-2">{title}</h3>
         {right}
       </div>
       {children}
