@@ -78,9 +78,17 @@ export function ChatView({
   const [convs, setConvs] = useState<ConversationSummary[]>([]);
   const [guideOpen, setGuideOpen] = useState(false);
   const [listening, setListening] = useState(false);
+  const [attachments, setAttachments] = useState<string[]>([]);
   const threadRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const dictationBase = useRef('');
+
+  function onFilesPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const names = Array.from(e.target.files ?? []).map((f) => f.name);
+    if (names.length) setAttachments((prev) => [...prev, ...names]);
+    e.target.value = ''; // allow re-picking the same file
+  }
 
   const SpeechRecognitionCtor =
     typeof window !== 'undefined'
@@ -147,8 +155,12 @@ export function ChatView({
   const c = view?.conversation;
 
   async function send(text: string) {
-    const t = text.trim();
-    if (!t || busy || !c) return;
+    let t = text.trim();
+    if ((!t && attachments.length === 0) || busy || !c) return;
+    if (attachments.length) {
+      t = (t ? t + '\n\n' : '') + `📎 Attached: ${attachments.join(', ')}`;
+      setAttachments([]);
+    }
     recognitionRef.current?.stop();
     setInput('');
     setBusy(true);
@@ -390,8 +402,40 @@ export function ChatView({
                     ))}
                   </div>
                 )}
+                {attachments.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {attachments.map((name, i) => (
+                      <span
+                        key={`${name}-${i}`}
+                        className="flex items-center gap-1.5 rounded-lg border border-[var(--grid)] bg-page px-2.5 py-1 text-xs text-ink-2"
+                      >
+                        <Paperclip />
+                        <span className="max-w-[160px] truncate">{name}</span>
+                        <button
+                          onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                          className="text-muted hover:text-[var(--critical)]"
+                          title="Remove attachment"
+                          aria-label={`Remove ${name}`}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={onFilesPicked}
+                />
                 <div className="flex items-end gap-2 rounded-2xl border border-[var(--grid)] bg-page px-3 py-2 focus-within:border-brand">
-                  <button className="pb-1 text-muted hover:text-ink-2" title="Attach (demo)">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="pb-1 text-muted hover:text-ink-2"
+                    title="Attach files"
+                  >
                     <Paperclip />
                   </button>
                   <textarea
@@ -426,7 +470,7 @@ export function ChatView({
                   </button>
                   <button
                     onClick={() => send(input)}
-                    disabled={busy || !input.trim()}
+                    disabled={busy || (!input.trim() && attachments.length === 0)}
                     className="grid h-8 w-8 place-items-center rounded-lg text-brand hover:bg-[color-mix(in_srgb,var(--brand)_10%,white)] disabled:opacity-40"
                     title="Send"
                   >

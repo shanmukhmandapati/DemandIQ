@@ -158,6 +158,80 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
     setPage(0);
   }
 
+  // Export the current (filtered) portfolio as a PDF via the browser's print →
+  // "Save as PDF". Builds a clean standalone report so the PDF doesn't contain
+  // the app chrome. No external dependency required.
+  function exportReport() {
+    const esc = (s: string) =>
+      s.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] as string));
+    const generatedAt = new Date().toLocaleString();
+    const kpiCards = [
+      ['Total Demands', String(kpis.total)],
+      ['Est. Annual Value', money(kpis.value)],
+      ['Avg. Priority Score', String(kpis.avg)],
+      ['High Priority', `${kpis.high} (${kpis.pct(kpis.high)}%)`],
+      ['Quick Wins', `${kpis.quick} (${kpis.pct(kpis.quick)}%)`],
+      ['Strategic Bets', `${kpis.bets} (${kpis.pct(kpis.bets)}%)`],
+    ];
+    const rows = [...pool]
+      .sort((a, b) => b.priorityScore - a.priorityScore)
+      .map(
+        (d) => `<tr>
+          <td>${esc(d.id)}</td>
+          <td>${esc(d.title)}</td>
+          <td>${esc(d.account)}</td>
+          <td>${esc(d.domain)}</td>
+          <td>${esc(d.country)}</td>
+          <td class="num">${d.priorityScore}</td>
+          <td>${esc(d.band)}</td>
+          <td class="num">${esc(moneyFull(d.value))}</td>
+          <td>${esc(d.status)}</td>
+        </tr>`,
+      )
+      .join('');
+
+    const html = `<!doctype html><html><head><meta charset="utf-8" />
+      <title>Demand Prioritisation Report</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 32px; }
+        h1 { font-size: 20px; margin: 0 0 2px; }
+        .muted { color: #64748b; font-size: 12px; }
+        .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 20px 0 24px; }
+        .kpi { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+        .kpi .lbl { font-size: 11px; color: #64748b; }
+        .kpi .val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eef2f7; }
+        th { color: #64748b; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+        td.num, th.num { text-align: right; }
+        @media print { body { margin: 12mm; } }
+      </style></head><body>
+      <h1>Demand Prioritisation Report</h1>
+      <div class="muted">${pool.length} demand${pool.length === 1 ? '' : 's'} · generated ${esc(generatedAt)}</div>
+      <div class="kpis">
+        ${kpiCards.map(([l, v]) => `<div class="kpi"><div class="lbl">${esc(l)}</div><div class="val">${esc(v)}</div></div>`).join('')}
+      </div>
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Title</th><th>Account</th><th>Domain</th><th>Country</th>
+          <th class="num">Score</th><th>Band</th><th class="num">Value</th><th>Status</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <script>window.onload = function(){ window.focus(); window.print(); };</script>
+    </body></html>`;
+
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+    const w = window.open(url, '_blank');
+    if (!w) {
+      URL.revokeObjectURL(url);
+      alert('Please allow pop-ups for this site to export the PDF.');
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   return (
     <div className="flex h-full w-full bg-slate-50 text-slate-800">
       {/* ---------- Filter rail ---------- */}
@@ -216,7 +290,7 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
           <div className="flex items-center gap-2">
             <HeaderBtn icon="★">Saved Views</HeaderBtn>
             <HeaderBtn icon="⟳" />
-            <HeaderBtn icon="⭳">Export</HeaderBtn>
+            <HeaderBtn icon={<ExportIcon />} onClick={exportReport}>Export PDF</HeaderBtn>
           </div>
         </header>
 
@@ -724,12 +798,25 @@ function Select({ label, value, onChange, options }: { label: string; value: str
 function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-500">{children}</div>;
 }
-function HeaderBtn({ icon, children }: { icon: string; children?: ReactNode }) {
+function HeaderBtn({ icon, children, onClick }: { icon: ReactNode; children?: ReactNode; onClick?: () => void }) {
   return (
-    <button className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
-      <span>{icon}</span>
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+    >
+      <span className="grid place-items-center">{icon}</span>
       {children}
     </button>
+  );
+}
+
+function ExportIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M12 18v-6M9 15l3 3 3-3" />
+    </svg>
   );
 }
 function Kpi({ label, value, sub, delta, icon, tint }: { label: string; value: string; sub?: string; delta: string; icon: string; tint: string }) {

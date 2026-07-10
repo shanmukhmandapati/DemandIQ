@@ -3,10 +3,9 @@ import { api } from './api';
 import type { MockUser } from './types';
 import { ChatView } from './components/ChatView';
 import { PrioritisationDashboard } from './prioritisation/PrioritisationDashboard';
-import { ChatHistory } from './components/ChatHistory';
 import { ActionLog } from './components/ActionLog';
 
-type View = 'new' | 'history' | 'tracker' | 'log';
+type View = 'new' | 'tracker' | 'log';
 
 export default function App() {
   const [users, setUsers] = useState<MockUser[]>([]);
@@ -123,7 +122,6 @@ export default function App() {
       {/* Tabs row (was the left sidebar) */}
       <nav className="flex items-center gap-1 border-b border-[var(--grid)] bg-surface px-4">
         <TabItem label="Demand Intake" icon="＋" active={view === 'new'} onClick={startNew} />
-        <TabItem label="Chat History" icon="🗨" active={view === 'history'} onClick={() => setView('history')} />
         <TabItem label="Demand Tracker" icon="▦" active={view === 'tracker'} onClick={() => setView('tracker')} />
         <TabItem label="Agent Action Log" icon="◔" active={view === 'log'} onClick={() => setView('log')} muted />
       </nav>
@@ -151,16 +149,6 @@ export default function App() {
               />
             </div>
           )}
-          {user && view === 'history' && (
-            <ChatHistory
-              user={user}
-              refreshKey={refresh}
-              onOpen={(id) => {
-                setActiveConv(id);
-                setView('new');
-              }}
-            />
-          )}
           {user && view === 'tracker' && (
             <div className="min-h-0 flex-1 overflow-auto">
               <PrioritisationDashboard onExit={() => setView('new')} />
@@ -176,8 +164,6 @@ export default function App() {
 function viewTitle(v: View): string {
   return v === 'new'
     ? 'Demand Intake'
-    : v === 'history'
-    ? 'Chat History'
     : v === 'tracker'
     ? 'Demand Tracker'
     : 'Agent Action Log';
