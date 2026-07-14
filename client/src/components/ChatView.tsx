@@ -26,15 +26,16 @@ declare global {
   }
 }
 
-const INTAKE_STEPS = [
-  'Business Objective',
-  'Need Overview',
-  'Business Context',
-  'Scope & Requirements',
-  'Value & Impact',
-  'Constraints & Dependencies',
-  'Additional Information',
-  'Review & Confirm',
+// label + a one-line definition (shown on hover). Full detail: docs/INTAKE-STEPS.md
+const INTAKE_STEPS: { label: string; info: string }[] = [
+  { label: 'Business Objective', info: 'What you want to achieve — the agent classifies the demand type and drafts a title.' },
+  { label: 'Need Overview', info: 'A clear, plain-language description of the need.' },
+  { label: 'Business Context', info: 'The business area / function this belongs to (submitter & org come from your login).' },
+  { label: 'Scope & Requirements', info: 'Type-specific detail that scopes the work — the questions adapt to the demand type.' },
+  { label: 'Value & Impact', info: 'The problem being solved, the expected value, and a light ROI read.' },
+  { label: 'Constraints & Dependencies', info: 'Timeline, and data-sensitivity if any sensitive/regulated data is involved.' },
+  { label: 'Additional Information', info: 'Anything else or attachments; the agent also checks for duplicate demands here.' },
+  { label: 'Review & Confirm', info: 'Review the summary, then Save draft or Confirm & submit (consent required).' },
 ];
 
 const SUGGESTED_PROMPTS = [
@@ -652,10 +653,10 @@ function ProgressCard({ step, missing }: { step?: ConversationStep; missing: num
         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
       </div>
       <ol className="space-y-1">
-        {INTAKE_STEPS.map((label, i) => {
+        {INTAKE_STEPS.map((step, i) => {
           const state = done || i < current - 1 ? 'done' : i === current - 1 ? 'active' : 'todo';
           return (
-            <li key={label} className="flex items-center gap-2">
+            <li key={step.label} className="flex items-center gap-2" title={step.info}>
               <span
                 className={`grid h-4 w-4 shrink-0 place-items-center rounded-full text-[9px] font-semibold ${
                   state === 'done'
@@ -668,11 +669,11 @@ function ProgressCard({ step, missing }: { step?: ConversationStep; missing: num
                 {state === 'done' ? '✓' : i + 1}
               </span>
               <span
-                className={`text-xs ${
+                className={`cursor-help text-xs ${
                   state === 'active' ? 'font-semibold text-brand' : state === 'done' ? 'text-ink' : 'text-muted'
                 }`}
               >
-                {label}
+                {step.label}
               </span>
             </li>
           );

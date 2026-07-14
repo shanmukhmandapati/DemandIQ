@@ -92,9 +92,10 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
   const [colorBy, setColorBy] = useState<'score' | 'count'>('score');
   const [showValues, setShowValues] = useState(true);
   const [cell, setCell] = useState<{ country: string; domain: string } | null>(null);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const activeFilters = Object.values(applied).filter((v) => v && v !== 'All').length;
 
   const pool = useMemo(() => DEMANDS.filter((d) => matchFilters(d, applied)), [applied]);
 
@@ -129,33 +130,18 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
     return { m, maxCount };
   }, [pool]);
 
-  const tableRows = useMemo(() => {
-    let rows = pool;
-    if (cell) rows = rows.filter((d) => d.country === cell.country && d.domain === cell.domain);
-    const q = search.trim().toLowerCase();
-    if (q) rows = rows.filter((d) => (d.title + d.id + d.account).toLowerCase().includes(q));
-    return [...rows].sort((a, b) => b.priorityScore - a.priorityScore);
-  }, [pool, cell, search]);
-
-  const PAGE = 10;
-  const pageRows = tableRows.slice(page * PAGE, page * PAGE + PAGE);
-  const pageCount = Math.max(1, Math.ceil(tableRows.length / PAGE));
-
   // The detail panel is closed until a demand is explicitly opened — either by
-  // clicking a heatmap cell (opens that cell's top demand) or a table row.
+  // clicking a heatmap cell (shows its demands in the right panel) or picking one.
   const selected = selectedId ? DEMANDS.find((d) => d.id === selectedId) ?? null : null;
 
   function applyFilters() {
     setApplied(staged);
-    setPage(0);
     setCell(null);
   }
   function clearAll() {
     setStaged(EMPTY);
     setApplied(EMPTY);
     setCell(null);
-    setSearch('');
-    setPage(0);
   }
 
   // Export the current (filtered) portfolio as a PDF via the browser's print →
@@ -234,22 +220,24 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
 
   return (
     <div className="flex h-full w-full bg-slate-50 text-slate-800">
-      {/* ---------- Filter rail ---------- */}
-      <aside className="flex w-64 flex-col border-r border-slate-200 bg-white">
-        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-4">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-600 text-xs font-bold text-white">
-            DIQ
-          </div>
-          <div className="text-sm font-semibold">DemandIQ</div>
-          <button onClick={onExit} className="ml-auto text-xs text-slate-400 hover:text-indigo-600" title="Back to app">
-            ‹ Back
-          </button>
-        </div>
-        <div className="flex items-center justify-between px-4 pb-2 pt-3">
+      {/* ---------- Filter rail (collapsible) ---------- */}
+      {filtersOpen && (
+      <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
+        <div className="flex items-center justify-between px-4 pb-2 pt-4">
           <span className="text-sm font-semibold">Filters</span>
-          <button onClick={clearAll} className="text-xs font-medium text-indigo-600 hover:underline">
-            Clear All
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={clearAll} className="text-xs font-medium text-indigo-600 hover:underline">
+              Clear All
+            </button>
+            <button
+              onClick={() => setFiltersOpen(false)}
+              className="text-slate-400 hover:text-slate-700"
+              title="Hide filters"
+              aria-label="Hide filters"
+            >
+              «
+            </button>
+          </div>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
           <Field label="Date Range">
@@ -282,22 +270,44 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
           </button>
         </div>
       </aside>
+      )}
 
       {/* ---------- Main ---------- */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
-          <h1 className="text-lg font-semibold">Demand Prioritisation Heatmap</h1>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setFiltersOpen((o) => !o)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm ${
+                filtersOpen
+                  ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
+                  : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+              title={filtersOpen ? 'Hide filters' : 'Show filters'}
+            >
+              <span>☰</span> Filters
+              {activeFilters > 0 && (
+                <span className="grid h-4 min-w-4 place-items-center rounded-full bg-indigo-600 px-1 text-[10px] font-semibold text-white">
+                  {activeFilters}
+                </span>
+              )}
+            </button>
+            <h1 className="text-lg font-semibold">Demand Prioritisation Heatmap</h1>
+          </div>
           <div className="flex items-center gap-2">
             <HeaderBtn icon="★">Saved Views</HeaderBtn>
             <HeaderBtn icon="⟳" />
             <HeaderBtn icon={<ExportIcon />} onClick={exportReport}>Export PDF</HeaderBtn>
+            <button onClick={onExit} className="ml-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50" title="Back to app">
+              ‹ Back
+            </button>
           </div>
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <div className="min-w-0 flex-1 space-y-4 overflow-y-auto p-5">
-            {/* KPI row */}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {/* KPI row — fixed above the scroll area so it stays visible */}
+            <div className="grid grid-cols-2 gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4 md:grid-cols-3 xl:grid-cols-6">
               <Kpi label="Total Demands" value={String(kpis.total)} delta="+18%" icon="▦" tint="#4f46e5" />
               <Kpi label="Est. Annual Value" value={money(kpis.value)} delta="+22%" icon="£" tint="#0d9488" />
               <Kpi label="Avg. Priority Score" value={String(kpis.avg)} delta="+5" icon="◔" tint="#7c3aed" />
@@ -306,6 +316,8 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
               <Kpi label="Strategic Bets" value={`${kpis.bets}`} sub={`${kpis.pct(kpis.bets)}%`} delta="+4%" icon="◈" tint="#059669" />
             </div>
 
+            {/* Scroll area — only the heatmap scrolls */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
             {/* Heatmap */}
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -353,91 +365,32 @@ export function PrioritisationDashboard({ onExit }: { onExit: () => void }) {
                 selectedCell={cell}
                 onCell={(country, domain) => {
                   setCell({ country, domain });
-                  setPage(0);
-                  const top = pool
-                    .filter((d) => d.country === country && d.domain === domain)
-                    .sort((a, b) => b.priorityScore - a.priorityScore)[0];
-                  setSelectedId(top ? top.id : null);
+                  // Show the cell's demands in the right panel; the user picks one to open.
+                  setSelectedId(null);
                 }}
               />
             </div>
-
-            {/* Demands table */}
-            <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-                <h3 className="text-sm font-semibold">
-                  Demands{' '}
-                  <span className="font-normal text-slate-500">
-                    {cell ? `in ${cell.domain} / ${cell.country}` : 'in portfolio'} ({tableRows.length})
-                  </span>
-                </h3>
-                <div className="flex items-center gap-2">
-                  <input
-                    value={search}
-                    onChange={(e) => {
-                      setSearch(e.target.value);
-                      setPage(0);
-                    }}
-                    placeholder="Search demands…"
-                    className="w-52 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
-                  />
-                  {cell && (
-                    <button onClick={() => setCell(null)} className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-50">
-                      Clear drill
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400">
-                      <Th>Priority</Th><Th>Demand ID</Th><Th>Title</Th><Th>Account</Th>
-                      <Th className="text-right">Est. Value</Th><Th className="text-right">Score</Th>
-                      <Th>Quick Win</Th><Th>Status</Th><Th className="text-right">Submitted</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.map((d) => (
-                      <tr
-                        key={d.id}
-                        onClick={() => setSelectedId(d.id)}
-                        className={`cursor-pointer border-b border-slate-50 hover:bg-slate-50 ${selected?.id === d.id ? 'bg-indigo-50/50' : ''}`}
-                      >
-                        <Td><Chip className={bandChip[d.band]}>{d.band}</Chip></Td>
-                        <Td className="font-medium text-indigo-600">{d.id}</Td>
-                        <Td className="max-w-[15rem] truncate font-medium text-slate-700">{d.title}</Td>
-                        <Td className="text-slate-500">{d.account}</Td>
-                        <Td className="text-right tabular-nums">{money(d.value)}</Td>
-                        <Td className="text-right font-semibold tabular-nums">{d.priorityScore}</Td>
-                        <Td><Chip className={d.quickWin ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}>{d.quickWin ? 'Yes' : 'No'}</Chip></Td>
-                        <Td><Chip className={statusChip[d.status]}>{d.status}</Chip></Td>
-                        <Td className="text-right tabular-nums text-slate-500">{fmtDate(d.submittedOn)}</Td>
-                      </tr>
-                    ))}
-                    {tableRows.length === 0 && (
-                      <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-400">No demands match the current filters.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {tableRows.length > 0 && (
-                <div className="flex items-center justify-between px-4 py-3 text-xs text-slate-500">
-                  <span>
-                    Showing {page * PAGE + 1}–{Math.min(tableRows.length, (page + 1) * PAGE)} of {tableRows.length}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <PageBtn disabled={page === 0} onClick={() => setPage(page - 1)}>‹</PageBtn>
-                    <span className="px-2">{page + 1} / {pageCount}</span>
-                    <PageBtn disabled={page + 1 >= pageCount} onClick={() => setPage(page + 1)}>›</PageBtn>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* ---------- Detail panel ---------- */}
-          {selected && <DetailPanel demand={selected} onClose={() => setSelectedId(null)} key={selected.id} />}
+          {/* ---------- Right panel: cell demands list → demand detail ---------- */}
+          {selected ? (
+            <DetailPanel
+              demand={selected}
+              onClose={() => setSelectedId(null)}
+              onBack={cell ? () => setSelectedId(null) : undefined}
+              key={selected.id}
+            />
+          ) : cell ? (
+            <CellDemandsPanel
+              cell={cell}
+              demands={pool
+                .filter((d) => d.country === cell.country && d.domain === cell.domain)
+                .sort((a, b) => b.priorityScore - a.priorityScore)}
+              onPick={(id) => setSelectedId(id)}
+              onClose={() => setCell(null)}
+            />
+          ) : null}
         </div>
       </div>
     </div>
@@ -577,10 +530,71 @@ function HeatTable({
   );
 }
 
-function DetailPanel({ demand: d, onClose }: { demand: Demand; onClose: () => void }) {
+function CellDemandsPanel({
+  cell,
+  demands,
+  onPick,
+  onClose,
+}: {
+  cell: { country: string; domain: string };
+  demands: Demand[];
+  onPick: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="flex w-[380px] shrink-0 flex-col overflow-hidden border-l border-slate-200 bg-white">
+      <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-wide text-slate-400">Demands in this cell</div>
+          <h2 className="mt-0.5 text-base font-semibold leading-snug">
+            {cell.domain} · {cell.country}
+          </h2>
+          <div className="mt-0.5 text-xs text-slate-400">
+            {demands.length} demand{demands.length === 1 ? '' : 's'} · select one to view details
+          </div>
+        </div>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-700" aria-label="Close">✕</button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {demands.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-slate-400">No demands in this cell.</div>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {demands.map((d) => (
+              <li key={d.id}>
+                <button
+                  onClick={() => onPick(d.id)}
+                  className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-slate-50"
+                >
+                  <Chip className={bandChip[d.band]}>{d.band}</Chip>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-slate-700">{d.title}</span>
+                    <span className="block truncate text-xs text-slate-400">{d.id} · {d.account}</span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-sm font-semibold tabular-nums text-slate-700">{d.priorityScore}</span>
+                    <span className="block text-[11px] tabular-nums text-slate-400">{money(d.value)}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function DetailPanel({ demand: d, onClose, onBack }: { demand: Demand; onClose: () => void; onBack?: () => void }) {
   const [showFull, setShowFull] = useState(false);
   return (
     <aside className="w-[380px] shrink-0 overflow-y-auto border-l border-slate-200 bg-white p-5">
+      {onBack && (
+        <button onClick={onBack} className="mb-3 text-xs font-medium text-indigo-600 hover:underline">
+          ‹ Back to list
+        </button>
+      )}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -834,21 +848,8 @@ function Kpi({ label, value, sub, delta, icon, tint }: { label: string; value: s
     </div>
   );
 }
-function Th({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <th className={`px-4 py-2 font-medium ${className}`}>{children}</th>;
-}
-function Td({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <td className={`px-4 py-2.5 align-middle ${className}`}>{children}</td>;
-}
 function Chip({ children, className }: { children: ReactNode; className: string }) {
   return <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${className}`}>{children}</span>;
-}
-function PageBtn({ children, disabled, onClick }: { children: ReactNode; disabled: boolean; onClick: () => void }) {
-  return (
-    <button disabled={disabled} onClick={onClick} className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
-      {children}
-    </button>
-  );
 }
 function ScoreCard({ label, value, suffix, accent }: { label: string; value: string; suffix?: string; accent?: string }) {
   return (

@@ -30,9 +30,9 @@ Typecheck everything: `npm run typecheck`.
   card, editable confirmation card, Demand Tracker with the portfolio heatmap, Chat
   History, and the Agent Action Log debug view.
 
-## API
-Full REST endpoint reference (for integrators) lives in **[`docs/API.md`](docs/API.md)** —
-base URL, request/response shapes, examples, and a curl smoke test.
+## Docs
+- **[`docs/API.md`](docs/API.md)** — REST endpoint reference: base URL, request/response shapes, examples, curl smoke test.
+- **[`docs/INTAKE-STEPS.md`](docs/INTAKE-STEPS.md)** — the 8-step Intake Progress explained: definition, captured fields, agent behavior, and how progress is derived.
 
 ## Demo script (≈2 min)
 1. **Happy path + duplicate** — sign in as *Tom Brandt — Castellan Legal Group*. New Demand →
