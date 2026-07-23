@@ -6,9 +6,12 @@ import {
   createConversation,
   handleUserMessage,
   saveDraft,
+  setRequestType,
   submit,
   SubmitError,
+  VALID_REQUEST_TYPES,
 } from '../engine/conversation.js';
+import type { RequestType } from '../types.js';
 import { logAction } from '../log/actionLog.js';
 import { assistantReply, assistantSystem } from '../llm/assistant.js';
 import { withScoring } from '../engine/scoring.js';
@@ -47,6 +50,7 @@ export function createApiRouter(repo: Repository): Router {
       title: c.title,
       status: c.status,
       step: c.step,
+      requestType: c.requestType,
       demandType: c.demandType,
       submittedItemId: c.submittedItemId,
       updatedAt: c.updatedAt,
@@ -71,6 +75,27 @@ export function createApiRouter(repo: Repository): Router {
       res.json(buildView(repo, c));
     } catch (err) {
       logAction(repo, c, 'error', `message handling failed: ${(err as Error).message}`);
+      res.status(500).json({ error: 'The agent hit a problem. Please try again.' });
+    }
+  });
+
+  // Select a request type from the radio panel. Resets the conversation and
+  // starts that type's question flow.
+  router.post('/conversations/:id/request-type', async (req, res) => {
+    const c = repo.getConversation(req.params.id);
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    const rt = String(req.body?.requestType ?? '');
+    if (!(VALID_REQUEST_TYPES as string[]).includes(rt)) {
+      return res.status(400).json({ error: 'Unknown request type' });
+    }
+    if (rt === 'cpq_approval') {
+      return res.status(400).json({ error: 'CPQ Approval is not available yet.' });
+    }
+    try {
+      await setRequestType(repo, c, rt as RequestType);
+      res.json(buildView(repo, c));
+    } catch (err) {
+      logAction(repo, c, 'error', `set request type failed: ${(err as Error).message}`);
       res.status(500).json({ error: 'The agent hit a problem. Please try again.' });
     }
   });

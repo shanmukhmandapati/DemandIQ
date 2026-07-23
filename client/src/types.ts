@@ -4,6 +4,20 @@ export type DemandType =
   | 'capacity_request'
   | 'exploratory';
 
+// User-selectable request types (radio buttons) that drive the chat questions.
+export type RequestType =
+  | 'deal_intake'
+  | 'cpq_approval'
+  | 'sow_approval'
+  | 'staff_augmentation';
+
+export const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+  deal_intake: 'Deal Intake',
+  cpq_approval: 'Cost, Price, Quote (CPQ) Approval',
+  sow_approval: 'Deal Assurance (SOW) Approval',
+  staff_augmentation: 'Staff Augmentation',
+};
+
 export type Persona =
   | 'Customer submitter'
   | 'Customer approver / sponsor'
@@ -40,6 +54,7 @@ export interface Conversation {
   orgId: string;
   status: 'Active' | 'Draft' | 'Submitted';
   step: ConversationStep;
+  requestType?: RequestType;
   demandType?: DemandType;
   pendingField?: string;
   messages: ChatMessage[];
@@ -108,6 +123,8 @@ export interface DemandItem {
   id: string;
   title: string;
   demandType: DemandType;
+  requestType?: RequestType;
+  submitterName?: string;
   scoring?: Scoring;
   description: string;
   businessArea: string;
@@ -130,6 +147,7 @@ export interface ConversationSummary {
   title: string;
   status: string;
   step: ConversationStep;
+  requestType?: RequestType;
   demandType?: DemandType;
   submittedItemId?: string;
   updatedAt: string;

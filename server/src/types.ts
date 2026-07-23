@@ -4,12 +4,24 @@ export type DemandType =
   | 'capacity_request'
   | 'exploratory';
 
+// User-selectable request types (radio buttons) that drive the chat question
+// flow. Distinct from the legacy AI-demand taxonomy above, which the Tracker /
+// heatmap / seed still use; a submitted item maps its request type onto a
+// DemandType for storage.
+export type RequestType =
+  | 'deal_intake'
+  | 'cpq_approval'
+  | 'sow_approval'
+  | 'staff_augmentation';
+
 export type DemandStatus = 'Draft' | 'Submitted';
 
 export interface DemandItem {
   id: string; // e.g. "DEM-000123"
   title: string;
   demandType: DemandType;
+  requestType?: RequestType; // radio-selected request type (new flow)
+  submitterName?: string;
   description: string;
   businessArea: string;
   businessProblem: string;
@@ -86,6 +98,7 @@ export interface Conversation {
   orgId: string;
   status: ConversationStatus;
   step: ConversationStep;
+  requestType?: RequestType; // radio-selected; drives which questions are asked
   demandType?: DemandType;
   mentionsSensitiveData: boolean;
   captured: Record<string, string>; // flat: mandatory + conditional + roi + sensitivity keys

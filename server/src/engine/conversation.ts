@@ -5,6 +5,7 @@ import type {
   DemandItem,
   DemandType,
   MockUser,
+  RequestType,
 } from '../types.js';
 import type { Repository } from '../store/repository.js';
 import { candidateSummaries } from '../store/seed.js';
@@ -12,6 +13,7 @@ import { classify } from '../llm/classify.js';
 import { phraseQuestion } from '../llm/phraseQuestion.js';
 import { duplicateCheck } from '../llm/duplicateCheck.js';
 import { logAction } from '../log/actionLog.js';
+import { getUser } from '../auth/users.js';
 import { findField, isComplete, missingMandatory, nextField, orderedFields } from './fields.js';
 
 export const TYPE_LABELS: Record<DemandType, string> = {
@@ -22,6 +24,30 @@ export const TYPE_LABELS: Record<DemandType, string> = {
 };
 
 const VALID_TYPES = Object.keys(TYPE_LABELS) as DemandType[];
+
+export const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+  deal_intake: 'Deal Intake',
+  cpq_approval: 'Cost, Price, Quote (CPQ) Approval',
+  sow_approval: 'Deal Assurance (SOW) Approval',
+  staff_augmentation: 'Staff Augmentation',
+};
+
+export const VALID_REQUEST_TYPES = Object.keys(REQUEST_TYPE_LABELS) as RequestType[];
+
+// Radio-selected request types are stored on the DemandItem via a legacy
+// DemandType so the (unchanged) Tracker and heatmap still render submitted items.
+const REQUEST_TO_DEMAND: Record<RequestType, DemandType> = {
+  deal_intake: 'new_ai_use_case',
+  cpq_approval: 'exploratory',
+  sow_approval: 'enhancement',
+  staff_augmentation: 'capacity_request',
+};
+
+/** The label to show the user: request type when set, else the legacy demand type. */
+function typeLabel(c: Conversation): string {
+  if (c.requestType) return REQUEST_TYPE_LABELS[c.requestType];
+  return c.demandType ? TYPE_LABELS[c.demandType] : 'request';
+}
 
 export interface QuickReply {
   label: string;
@@ -85,7 +111,7 @@ export function createConversation(repo: Repository, user: MockUser): Conversati
     captured: {},
     messages: [
       agent(
-        `Hi ${user.name.split(' ')[0]}, I'm the Demand Intake assistant. In a sentence or two, what AI need or idea would you like to raise for ${user.orgName}?`,
+        `Hi ${user.name.split(' ')[0]}, I'm the Demand Intake assistant. To get started, pick a request type from the panel on the right and I'll ask a few quick questions for ${user.orgName}.`,
       ),
     ],
     title: 'New demand',
@@ -106,7 +132,10 @@ export async function handleUserMessage(
 
   switch (c.step) {
     case 'classify':
-      await doClassify(repo, c, text);
+      // Entry is now radio-driven: nudge the user to pick a request type.
+      c.messages.push(
+        agent('Please pick a request type from the panel on the right to get started.'),
+      );
       break;
     case 'confirm_type':
       await doConfirmType(repo, c, text);
@@ -126,6 +155,38 @@ export async function handleUserMessage(
       break;
   }
 
+  c.updatedAt = now();
+  return repo.saveConversation(c);
+}
+
+/**
+ * Set the request type from the radio selection. Per the chosen UX this RESETS
+ * the conversation: prior answers and the message thread are cleared and a fresh
+ * question flow for the new type begins.
+ */
+export async function setRequestType(
+  repo: Repository,
+  c: Conversation,
+  requestType: RequestType,
+): Promise<Conversation> {
+  c.requestType = requestType;
+  c.demandType = REQUEST_TO_DEMAND[requestType]; // legacy value for Tracker/heatmap/DemandItem
+  c.captured = {};
+  c.mentionsSensitiveData = false;
+  c.pendingField = undefined;
+  c.duplicate = undefined;
+  c.duplicateDecision = undefined;
+  c.submittedItemId = undefined;
+  c.status = 'Active';
+  c.title = REQUEST_TYPE_LABELS[requestType];
+  c.step = 'questioning';
+  c.messages = [
+    agent(
+      `Let's capture your ${REQUEST_TYPE_LABELS[requestType]} request. I'll ask a few quick questions — you can switch the request type on the right at any time.`,
+    ),
+  ];
+  logAction(repo, c, 'classification', `request_type selected: ${requestType}`);
+  await askNextOrAdvance(repo, c);
   c.updatedAt = now();
   return repo.saveConversation(c);
 }
@@ -178,6 +239,8 @@ async function doAnswer(repo: Repository, c: Conversation, text: string): Promis
     logAction(repo, c, 'answer_captured', `${c.pendingField} = ${text.trim()}`);
     if (c.pendingField === 'title') c.title = text.trim();
     if (f && !c.captured.title && f.key === 'description') c.title = text.slice(0, 48);
+    // Scripted flows (e.g. Deal Intake) title the demand by the client name.
+    if (c.pendingField === 'client_name' && !c.captured.title) c.title = text.trim();
   }
   await askNextOrAdvance(repo, c);
 }
@@ -186,12 +249,15 @@ async function askNextOrAdvance(repo: Repository, c: Conversation): Promise<void
   const field = nextField(c);
   if (field) {
     c.pendingField = field.key;
-    const question = await phraseQuestion({
-      fieldLabel: field.label,
-      hint: field.hint,
-      demandType: c.demandType ? TYPE_LABELS[c.demandType] : undefined,
-      contextSummary: contextSummary(c),
-    });
+    // A field may carry exact wording; otherwise phrase it via the LLM.
+    const question =
+      field.question ??
+      (await phraseQuestion({
+        fieldLabel: field.label,
+        hint: field.hint,
+        demandType: c.requestType || c.demandType ? typeLabel(c) : undefined,
+        contextSummary: contextSummary(c),
+      }));
     c.messages.push(agent(question));
     logAction(repo, c, 'question_asked', `${field.key}: "${question}"`);
     return;
@@ -201,7 +267,7 @@ async function askNextOrAdvance(repo: Repository, c: Conversation): Promise<void
 }
 
 async function runDuplicateCheck(repo: Repository, c: Conversation): Promise<void> {
-  const draft = `Type: ${TYPE_LABELS[c.demandType!]}\nTitle: ${c.captured.title ?? ''}\nBusiness area: ${
+  const draft = `Type: ${typeLabel(c)}\nTitle: ${c.captured.title ?? ''}\nBusiness area: ${
     c.captured.business_area ?? ''
   }\nProblem: ${c.captured.business_problem ?? ''}\nDescription: ${c.captured.description ?? ''}`;
 
@@ -316,8 +382,10 @@ export function submit(
 
   const item: DemandItem = {
     id: repo.nextDemandId(),
-    title: c.captured.title || c.title,
+    title: c.captured.title || c.captured.client_name || c.title,
     demandType: c.demandType!,
+    requestType: c.requestType,
+    submitterName: getUser(c.userId)?.name,
     description: c.captured.description || '',
     businessArea: c.captured.business_area || '',
     businessProblem: c.captured.business_problem || '',
@@ -427,7 +495,7 @@ function buildSummary(c: Conversation): SummarySection[] {
   }
   const order: { group: string; title: string }[] = [
     { group: 'mandatory', title: 'Core details' },
-    { group: 'conditional', title: 'Details for this demand type' },
+    { group: 'conditional', title: 'Details for this request type' },
     { group: 'sensitivity', title: 'Data sensitivity' },
     { group: 'roi', title: 'Value (light ROI)' },
   ];

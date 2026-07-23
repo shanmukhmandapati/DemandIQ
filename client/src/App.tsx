@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
-import type { MockUser } from './types';
+import type { MockUser, RequestType } from './types';
 import { ChatView } from './components/ChatView';
 import { PrioritisationDashboard } from './prioritisation/PrioritisationDashboard';
-import { ActionLog } from './components/ActionLog';
+import { ListsDashboard } from './components/ListsDashboard';
 
-type View = 'new' | 'tracker' | 'log';
+type View = 'new' | 'tracker';
 
 export default function App() {
   const [users, setUsers] = useState<MockUser[]>([]);
@@ -15,6 +15,11 @@ export default function App() {
   const [simFail, setSimFail] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [dashboardOpen, setDashboardOpen] = useState(false);
+  // The request type currently in play; a new conversation inherits it so the
+  // relevant questions start immediately.
+  const [currentRequestType, setCurrentRequestType] = useState<RequestType | undefined>(undefined);
 
   useEffect(() => {
     api.users().then((u) => {
@@ -59,30 +64,54 @@ export default function App() {
           </div>
         </div>
 
-        <div className="ml-2 border-l border-[var(--grid)] pl-4">
-          <h1 className="text-sm font-semibold leading-tight">{viewTitle(view)}</h1>
-          <p className="text-[11px] text-muted leading-tight">AI-assisted demand intake</p>
-        </div>
-
         <div className="ml-auto flex items-center gap-3">
-          <div className="text-right">
-            <div className="text-xs text-muted">{user?.persona ?? 'Signed in as'}</div>
-            <div className="text-sm font-medium">
-              {user?.name}
-              {user?.orgName ? ` · ${user.orgName}` : ''}
-            </div>
+          <div className="relative">
+            <button
+              onClick={() => setProfileOpen((o) => !o)}
+              className="grid h-9 w-9 place-items-center rounded-full bg-brand text-sm font-semibold text-white hover:bg-brand-deep"
+              title={user?.name ?? 'Account'}
+              aria-label="Account"
+            >
+              {initials(user?.name)}
+            </button>
+            {profileOpen && (
+              <div className="absolute right-0 z-30 mt-2 w-64 rounded-lg border border-[var(--grid)] bg-surface p-2 shadow-lg">
+                <div className="flex items-center gap-3 px-2 py-2">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand text-sm font-semibold text-white">
+                    {initials(user?.name)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{user?.name}</div>
+                    <div className="truncate text-xs text-muted">{user?.orgName}</div>
+                  </div>
+                </div>
+                <div className="my-1 border-t border-[var(--grid)]" />
+                <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                  Switch user
+                </div>
+                {users.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => {
+                      switchUser(u.id);
+                      setProfileOpen(false);
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-page ${
+                      u.id === userId ? 'font-medium text-brand' : 'text-ink-2'
+                    }`}
+                  >
+                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--brand)_12%,white)] text-[10px] font-semibold text-brand">
+                      {initials(u.name)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">
+                      {u.name} <span className="text-muted">· {u.orgName}</span>
+                    </span>
+                    {u.id === userId && <span className="text-brand">✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <select
-            value={userId}
-            onChange={(e) => switchUser(e.target.value)}
-            className="rounded-lg border border-[var(--grid)] bg-page px-3 py-2 text-sm"
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.persona} — {u.name} ({u.orgName})
-              </option>
-            ))}
-          </select>
           <div className="relative">
             <button
               onClick={() => setSettingsOpen((o) => !o)}
@@ -121,9 +150,11 @@ export default function App() {
 
       {/* Tabs row (was the left sidebar) */}
       <nav className="flex items-center gap-1 border-b border-[var(--grid)] bg-surface px-4">
-        <TabItem label="Demand Intake" icon="＋" active={view === 'new'} onClick={startNew} />
-        <TabItem label="Demand Tracker" icon="▦" active={view === 'tracker'} onClick={() => setView('tracker')} />
-        <TabItem label="Agent Action Log" icon="◔" active={view === 'log'} onClick={() => setView('log')} muted />
+        <TabItem label="New Request" icon="＋" active={view === 'new'} onClick={startNew} />
+        <TabItem label="Demand Tracker" icon="▦" active={false} onClick={() => {}} disabled />
+        <div className="ml-auto">
+          <TabItem label="Dashboard" icon="▤" active={dashboardOpen} onClick={() => setDashboardOpen(true)} />
+        </div>
       </nav>
 
       {/* Main */}
@@ -135,16 +166,18 @@ export default function App() {
                 key={`${userId}:${activeConv ?? 'fresh'}:${refresh}`}
                 user={user}
                 conversationId={activeConv}
-                refreshKey={refresh}
+                initialRequestType={currentRequestType}
+                onRequestTypeChange={setCurrentRequestType}
                 onConversationCreated={setActiveConv}
                 onNewConversation={startNew}
                 onOpenConversation={(id) => {
                   setActiveConv(id);
                   setView('new');
                 }}
+                refreshKey={refresh}
                 onSubmitted={() => {
                   setRefresh((r) => r + 1);
-                  setView('tracker');
+                  setDashboardOpen(true);
                 }}
               />
             </div>
@@ -154,19 +187,25 @@ export default function App() {
               <PrioritisationDashboard onExit={() => setView('new')} />
             </div>
           )}
-          {user && view === 'log' && <ActionLog user={user} activeConversationId={activeConv} />}
         </main>
       </div>
+
+      <ListsDashboard
+        open={dashboardOpen}
+        onClose={() => setDashboardOpen(false)}
+        userId={userId}
+        refreshKey={refresh}
+      />
     </div>
   );
 }
 
-function viewTitle(v: View): string {
-  return v === 'new'
-    ? 'Demand Intake'
-    : v === 'tracker'
-    ? 'Demand Tracker'
-    : 'Agent Action Log';
+function initials(name?: string): string {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (first + last).toUpperCase() || '?';
 }
 
 function TabItem({
@@ -175,18 +214,24 @@ function TabItem({
   active,
   onClick,
   muted,
+  disabled,
 }: {
   label: string;
   icon: string;
   active: boolean;
   onClick: () => void;
   muted?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={disabled ? 'Coming soon' : undefined}
       className={`flex items-center gap-2 border-b-2 px-3 py-3 text-sm transition ${
-        active
+        disabled
+          ? 'cursor-not-allowed border-transparent text-muted opacity-50'
+          : active
           ? 'border-brand font-semibold text-brand'
           : muted
           ? 'border-transparent text-muted hover:text-ink-2'
@@ -195,6 +240,7 @@ function TabItem({
     >
       <span>{icon}</span>
       <span>{label}</span>
+      {disabled && <span className="ml-1 text-[10px] text-muted">(soon)</span>}
     </button>
   );
 }

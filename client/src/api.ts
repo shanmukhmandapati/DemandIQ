@@ -4,6 +4,7 @@ import type {
   ConversationView,
   DemandItem,
   MockUser,
+  RequestType,
 } from './types';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -41,6 +42,12 @@ export const api = {
     req<ConversationView>(`/conversations/${id}/messages`, {
       method: 'POST',
       body: JSON.stringify({ text }),
+    }),
+
+  setRequestType: (id: string, requestType: RequestType) =>
+    req<ConversationView>(`/conversations/${id}/request-type`, {
+      method: 'POST',
+      body: JSON.stringify({ requestType }),
     }),
 
   saveDraft: (id: string) =>

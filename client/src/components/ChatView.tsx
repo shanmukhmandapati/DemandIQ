@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import type { ConversationStep, ConversationSummary, ConversationView, MockUser } from '../types';
-import { TypeChip } from './ui';
+import type { ConversationSummary, ConversationView, MockUser, RequestType } from '../types';
+import { REQUEST_TYPE_LABELS } from '../types';
 import { ConfirmationCard } from './ConfirmationCard';
 import { DuplicateCard } from './DuplicateCard';
 
@@ -26,36 +26,20 @@ declare global {
   }
 }
 
-// label + a one-line definition (shown on hover). Full detail: docs/INTAKE-STEPS.md
-const INTAKE_STEPS: { label: string; info: string }[] = [
-  { label: 'Business Objective', info: 'What you want to achieve — the agent classifies the demand type and drafts a title.' },
-  { label: 'Need Overview', info: 'A clear, plain-language description of the need.' },
-  { label: 'Business Context', info: 'The business area / function this belongs to (submitter & org come from your login).' },
-  { label: 'Scope & Requirements', info: 'Type-specific detail that scopes the work — the questions adapt to the demand type.' },
-  { label: 'Value & Impact', info: 'The problem being solved, the expected value, and a light ROI read.' },
-  { label: 'Constraints & Dependencies', info: 'Timeline, and data-sensitivity if any sensitive/regulated data is involved.' },
-  { label: 'Additional Information', info: 'Anything else or attachments; the agent also checks for duplicate demands here.' },
-  { label: 'Review & Confirm', info: 'Review the summary, then Save draft or Confirm & submit (consent required).' },
-];
-
-const SUGGESTED_PROMPTS = [
-  'What information do you need from me?',
-  'What are the common solution approaches for this type of need?',
-  'Can you show similar demands submitted by others?',
-  'How long does the intake and review process take?',
-  'What happens after I submit this demand?',
-];
-
-const INSIGHTS = [
-  'Similar demands and outcomes',
-  'Estimated effort and timeline',
-  'Potential solution areas',
-  'Related policies and guidelines',
+// Radio options for the "Request type" panel. Each drives its own question flow.
+// CPQ Approval is intentionally disabled for now ("coming soon").
+const REQUEST_TYPE_OPTIONS: { value: RequestType; label: string; info: string; disabled?: boolean }[] = [
+  { value: 'deal_intake', label: 'Deal Intake', info: 'Capture a new sales opportunity — client, offering, value and target close.' },
+  { value: 'cpq_approval', label: 'Cost, Price, Quote (CPQ) Approval', info: 'Coming soon.', disabled: true },
+  { value: 'sow_approval', label: 'Deal Assurance (SOW) Approval', info: 'Submit a statement of work for delivery / commercial assurance review.' },
+  { value: 'staff_augmentation', label: 'Staff Augmentation', info: 'Request people, skills, headcount and duration for an engagement.' },
 ];
 
 export function ChatView({
   user,
   conversationId,
+  initialRequestType,
+  onRequestTypeChange,
   onConversationCreated,
   onSubmitted,
   onNewConversation,
@@ -64,6 +48,8 @@ export function ChatView({
 }: {
   user: MockUser;
   conversationId: string | null;
+  initialRequestType?: RequestType;
+  onRequestTypeChange?: (rt: RequestType) => void;
   onConversationCreated: (id: string) => void;
   onSubmitted: (itemId: string) => void;
   onNewConversation: () => void;
@@ -76,7 +62,7 @@ export function ChatView({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [convs, setConvs] = useState<ConversationSummary[]>([]);
+  const [drafts, setDrafts] = useState<ConversationSummary[]>([]);
   const [guideOpen, setGuideOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -132,9 +118,15 @@ export function ChatView({
     started.current = true;
     (async () => {
       try {
-        const v = conversationId
+        let v = conversationId
           ? await api.getConversation(conversationId)
           : await api.startConversation(user.id);
+        // A brand-new conversation inherits the currently selected request type
+        // so its questions start immediately (e.g. New Conversation while SOW is
+        // selected opens straight into the SOW questions).
+        if (!conversationId && initialRequestType) {
+          v = await api.setRequestType(v.conversation.id, initialRequestType);
+        }
         setView(v);
         if (!conversationId) onConversationCreated(v.conversation.id);
       } catch (e) {
@@ -144,9 +136,23 @@ export function ChatView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Left-rail conversation list (recent + drafts), scoped to the current user.
+  // Report the active request type upward so a future New Conversation inherits it.
   useEffect(() => {
-    api.listConversations(user.id).then(setConvs).catch(() => setConvs([]));
+    const rt = view?.conversation.requestType;
+    if (rt) onRequestTypeChange?.(rt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view?.conversation.requestType]);
+
+  // Left-panel drafts list, scoped to the current user.
+  function loadDrafts() {
+    api
+      .listConversations(user.id)
+      .then((list) => setDrafts(list.filter((x) => x.status === 'Draft')))
+      .catch(() => setDrafts([]));
+  }
+  useEffect(() => {
+    loadDrafts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, refreshKey, view?.conversation.updatedAt]);
 
   useEffect(() => {
@@ -196,6 +202,19 @@ export function ChatView({
     }
   }
 
+  async function selectRequestType(rt: RequestType) {
+    if (!c || busy || rt === c.requestType) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setView(await api.setRequestType(c.id, rt));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleSubmit(edits: Record<string, string>, consent: boolean) {
     if (submitting || !c) return; // client-side idempotency guard (double-click)
     setSubmitting(true);
@@ -215,278 +234,287 @@ export function ChatView({
     if (!c) return;
     try {
       setView(await api.saveDraft(c.id));
+      loadDrafts();
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
-  const recent = convs.filter((x) => x.status !== 'Draft');
-  const drafts = convs.filter((x) => x.status === 'Draft');
-
   return (
     <div className="flex h-full">
-      {/* ── Left rail: conversations & drafts ───────────────────────── */}
-      <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-r border-[var(--grid)] bg-surface md:flex">
-        <div className="flex items-center justify-between px-4 pt-5">
-          <h2 className="text-base font-semibold">Demand Intake</h2>
+      {/* ── Left rail: drafts ───────────────────────────────────────── */}
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-[var(--grid)] bg-surface md:flex">
+        <div className="px-4 pt-5">
           <button
             onClick={onNewConversation}
-            className="grid h-6 w-6 place-items-center rounded-md text-lg text-muted hover:bg-page"
-            title="New conversation"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-deep"
           >
-            ＋
+            <span>＋</span> New request
           </button>
         </div>
 
-        <div className="px-4 pt-3">
-          <button
-            onClick={onNewConversation}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-3 py-2.5 text-sm font-semibold text-white hover:bg-brand-deep"
-          >
-            <span>＋</span> New Conversation
-          </button>
+        <div className="px-4 pb-2 pt-6">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+            Drafts
+          </span>
         </div>
-
-        <ConvSection
-          title="Recent Conversations"
-          items={recent}
-          activeId={conversationId}
-          onOpen={onOpenConversation}
-          empty="No conversations yet"
-        />
-        {recent.length > 0 && (
-          <button className="px-4 pb-1 text-left text-sm font-medium text-brand hover:underline">
-            View all conversations
-          </button>
-        )}
-
-        {drafts.length > 0 && (
-          <>
-            <ConvSection
-              title="Your Drafts"
-              count={drafts.length}
-              items={drafts}
-              activeId={conversationId}
-              onOpen={onOpenConversation}
-            />
-            <button className="px-4 pb-1 text-left text-sm font-medium text-brand hover:underline">
-              View all drafts
-            </button>
-          </>
-        )}
-
-        <div className="mt-auto p-4">
-          <div className="rounded-xl border border-[var(--grid)] bg-page p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <span className="text-brand">◎</span> Need help?
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-muted">
-              See guidance on how to submit a demand
+        <div className="flex-1 overflow-y-auto px-2 pb-4">
+          {drafts.length === 0 ? (
+            <p className="px-2 text-xs leading-relaxed text-muted">
+              No saved drafts yet. Use <span className="font-medium text-ink-2">Save draft</span> to keep a request and resume it later.
             </p>
-            <button
-              onClick={() => setGuideOpen(true)}
-              className="mt-2 text-sm font-medium text-brand hover:underline"
-            >
-              View Intake Guide →
-            </button>
-          </div>
+          ) : (
+            <ul className="space-y-0.5">
+              {drafts.map((d) => {
+                const active = d.id === conversationId;
+                return (
+                  <li key={d.id}>
+                    <button
+                      onClick={() => onOpenConversation(d.id)}
+                      className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition ${
+                        active ? 'bg-[color-mix(in_srgb,var(--brand)_10%,white)]' : 'hover:bg-page'
+                      }`}
+                    >
+                      <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[color-mix(in_srgb,var(--warning)_18%,white)] text-[11px] text-[#8a5a00]">
+                        ✎
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium text-ink">
+                            {d.title || 'Untitled draft'}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted">{fmtTime(d.updatedAt)}</span>
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted">
+                          {d.requestType ? REQUEST_TYPE_LABELS[d.requestType] : `${d.messageCount} messages`}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </aside>
 
       {/* ── Center: the chat ────────────────────────────────────────── */}
       <section className="flex min-w-0 flex-1 flex-col bg-page">
         {/* Agent header */}
-        <div className="border-b border-[var(--grid)] bg-surface px-6 py-4">
-          <div className="flex items-center gap-3">
+        <div className="border-b border-[var(--grid)] bg-surface px-6 py-3.5">
+          <div className="mx-auto flex max-w-3xl items-center gap-3">
             <BotAvatar />
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-lg font-semibold">Demand Intake Agent</h1>
-                <span className="rounded-full bg-[color-mix(in_srgb,var(--brand)_12%,white)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand">
+                <h1 className="truncate text-[15px] font-semibold text-ink">
+                  {c?.requestType ? `${REQUEST_TYPE_LABELS[c.requestType]} Assistant` : 'Demand Intake Assistant'}
+                </h1>
+                <span className="rounded-md bg-[color-mix(in_srgb,var(--brand)_10%,white)] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-brand">
                   Beta
                 </span>
               </div>
-              <p className="text-xs text-muted">
-                I'll help you capture your business need and create a demand for the right solution.
-              </p>
-            </div>
-            {c?.demandType && (
-              <div className="ml-auto">
-                <TypeChip type={c.demandType} />
+              <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--good)]" />
+                <span>Online · guided intake</span>
               </div>
-            )}
+            </div>
           </div>
         </div>
 
         {!view || !c ? (
-          <div className="grid flex-1 place-items-center text-sm text-muted">
-            {error ? <span className="text-[var(--critical)]">{error}</span> : 'Starting your intake…'}
+          <div className="grid flex-1 place-items-center px-6 text-center text-sm text-muted">
+            {error ? (
+              <span className="text-[var(--critical)]">{error}</span>
+            ) : (
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-flex gap-1">
+                  <Dot /> <Dot /> <Dot />
+                </span>
+                Preparing your workspace…
+              </span>
+            )}
           </div>
         ) : (
           <>
             {/* thread */}
-            <div ref={threadRef} className="thread flex-1 space-y-4 overflow-y-auto px-6 py-5">
-              {c.messages.map((m) => (
-                <div key={m.id} className={`flex gap-3 ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {m.role !== 'user' && <BotAvatar small />}
+            <div ref={threadRef} className="thread flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+                {c.messages.map((m) => (
                   <div
-                    className={`max-w-[78%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                      m.role === 'user'
-                        ? 'rounded-br-md bg-[color-mix(in_srgb,var(--brand)_10%,white)] text-ink'
-                        : 'rounded-tl-md border border-[var(--grid)] bg-surface text-ink shadow-sm'
-                    }`}
+                    key={m.id}
+                    className={`flex items-end gap-2.5 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}
                   >
-                    {m.text}
-                    <div className="mt-1 text-[10px] text-muted">{fmtTime(m.ts)}</div>
+                    {m.role === 'user' ? <UserAvatar name={user.name} /> : <BotAvatar small />}
+                    <div className={`flex max-w-[80%] flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+                      <div
+                        className={`whitespace-pre-wrap px-4 py-2.5 text-sm leading-relaxed ${
+                          m.role === 'user'
+                            ? 'rounded-2xl rounded-br-sm bg-brand text-white'
+                            : 'rounded-2xl rounded-bl-sm border border-[var(--grid)] bg-surface text-ink shadow-[0_1px_2px_rgba(16,24,40,0.05)]'
+                        }`}
+                      >
+                        {m.text}
+                      </div>
+                      <span className="mt-1 px-1 text-[10px] text-muted">{fmtTime(m.ts)}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-              {busy && (
-                <div className="flex items-center gap-3">
-                  <BotAvatar small />
-                  <div className="rounded-2xl rounded-tl-md border border-[var(--grid)] bg-surface px-4 py-3 text-sm text-muted">
-                    <span className="inline-flex gap-1">
-                      <Dot /> <Dot /> <Dot />
-                    </span>
+                ))}
+                {busy && (
+                  <div className="flex items-end gap-2.5">
+                    <BotAvatar small />
+                    <div className="rounded-2xl rounded-bl-sm border border-[var(--grid)] bg-surface px-4 py-3 shadow-[0_1px_2px_rgba(16,24,40,0.05)]">
+                      <span className="inline-flex gap-1">
+                        <Dot /> <Dot /> <Dot />
+                      </span>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {view.duplicateCandidate && c.step === 'duplicate_decision' && (
-                <DuplicateCard
-                  candidate={view.duplicateCandidate}
-                  matchType={c.duplicate?.matchType}
-                  rationale={c.duplicate?.rationale}
-                />
-              )}
+                {view.duplicateCandidate && c.step === 'duplicate_decision' && (
+                  <DuplicateCard
+                    candidate={view.duplicateCandidate}
+                    matchType={c.duplicate?.matchType}
+                    rationale={c.duplicate?.rationale}
+                  />
+                )}
 
-              {c.step === 'confirmation' && (
-                <ConfirmationCard
-                  view={view}
-                  submitting={submitting}
-                  submitError={submitError}
-                  onSubmit={handleSubmit}
-                  onSaveDraft={handleSaveDraft}
-                />
-              )}
+                {c.step === 'confirmation' && (
+                  <ConfirmationCard
+                    view={view}
+                    submitting={submitting}
+                    submitError={submitError}
+                    onSubmit={handleSubmit}
+                    onSaveDraft={handleSaveDraft}
+                  />
+                )}
+              </div>
             </div>
 
             {/* composer / footer */}
             {c.step === 'submitted' ? (
-              <div className="border-t border-[var(--grid)] bg-surface px-6 py-4 text-center">
-                <div className="text-sm font-medium text-[var(--good-text)]">
-                  ✓ Demand submitted as {c.submittedItemId}
+              <div className="border-t border-[var(--grid)] bg-surface px-6 py-5">
+                <div className="mx-auto flex max-w-3xl items-center justify-center gap-2.5 rounded-xl border border-[color-mix(in_srgb,var(--good)_35%,white)] bg-[color-mix(in_srgb,var(--good)_8%,white)] px-4 py-3">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-[var(--good-text)] text-xs text-white">✓</span>
+                  <div className="text-sm">
+                    <span className="font-semibold text-[var(--good-text)]">Request submitted</span>
+                    <span className="text-ink-2"> as {c.submittedItemId}. </span>
+                    <span className="text-muted">Open the Dashboard to view it.</span>
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-muted">You can track it in the Demand Tracker.</p>
               </div>
             ) : c.step === 'confirmation' ? null : (
-              <div className="border-t border-[var(--grid)] bg-surface px-6 py-4">
-                {error && (
-                  <div className="mb-2 rounded-lg bg-[color-mix(in_srgb,var(--critical)_8%,white)] px-3 py-2 text-sm text-[var(--critical)]">
-                    {error}{' '}
-                    <button className="font-medium underline" onClick={() => setError(null)}>
-                      dismiss
+              <div className="border-t border-[var(--grid)] bg-surface px-4 py-3.5">
+                <div className="mx-auto max-w-3xl">
+                  {error && (
+                    <div className="mb-2.5 flex items-center justify-between gap-2 rounded-lg border border-[color-mix(in_srgb,var(--critical)_25%,white)] bg-[color-mix(in_srgb,var(--critical)_8%,white)] px-3 py-2 text-sm text-[var(--critical)]">
+                      <span>{error}</span>
+                      <button className="font-medium underline" onClick={() => setError(null)}>
+                        dismiss
+                      </button>
+                    </div>
+                  )}
+                  {view.quickReplies.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {view.quickReplies.map((q) => (
+                        <button
+                          key={q.value}
+                          disabled={busy}
+                          onClick={() => send(q.label.replace(/\s*✓$/, ''))}
+                          className="rounded-full border border-[var(--grid)] bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-2 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition hover:border-brand hover:text-brand disabled:opacity-50"
+                        >
+                          {q.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {attachments.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {attachments.map((name, i) => (
+                        <span
+                          key={`${name}-${i}`}
+                          className="flex items-center gap-1.5 rounded-lg border border-[var(--grid)] bg-page px-2.5 py-1 text-xs text-ink-2"
+                        >
+                          <Paperclip />
+                          <span className="max-w-[160px] truncate">{name}</span>
+                          <button
+                            onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                            className="text-muted hover:text-[var(--critical)]"
+                            title="Remove attachment"
+                            aria-label={`Remove ${name}`}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={onFilesPicked}
+                  />
+                  <div className="flex items-end gap-2 rounded-2xl border border-[var(--grid)] bg-page px-2.5 py-1.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition focus-within:border-brand focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--brand)_18%,white)]">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-[var(--grid)] hover:text-ink-2"
+                      title="Attach files"
+                    >
+                      <Paperclip />
+                    </button>
+                    <textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          send(input);
+                        }
+                      }}
+                      rows={1}
+                      placeholder="Type your answer or ask a follow-up question…"
+                      className="max-h-32 flex-1 resize-none bg-transparent py-1.5 text-sm text-ink placeholder:text-muted focus:outline-none"
+                    />
+                    <button
+                      onClick={toggleDictation}
+                      disabled={!speechSupported}
+                      className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                        listening ? 'animate-pulse text-[var(--critical)]' : 'text-muted hover:bg-[var(--grid)] hover:text-ink-2'
+                      }`}
+                      title={
+                        !speechSupported
+                          ? 'Voice input not supported in this browser'
+                          : listening
+                          ? 'Stop dictation'
+                          : 'Dictate with your voice'
+                      }
+                      aria-pressed={listening}
+                    >
+                      <Mic />
+                    </button>
+                    <button
+                      onClick={() => send(input)}
+                      disabled={busy || (!input.trim() && attachments.length === 0)}
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand text-white transition hover:bg-brand-deep disabled:bg-[var(--grid)] disabled:text-muted"
+                      title="Send"
+                    >
+                      <Send />
                     </button>
                   </div>
-                )}
-                {view.quickReplies.length > 0 && (
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {view.quickReplies.map((q) => (
-                      <button
-                        key={q.value}
-                        disabled={busy}
-                        onClick={() => send(q.label.replace(/\s*✓$/, ''))}
-                        className="rounded-lg border border-[color-mix(in_srgb,var(--brand)_40%,white)] px-3 py-2 text-sm font-medium text-brand hover:bg-[color-mix(in_srgb,var(--brand)_8%,white)] disabled:opacity-50"
-                      >
-                        {q.label}
-                      </button>
-                    ))}
+                  <div className="mt-2 flex items-center justify-between px-1">
+                    <span className="hidden text-[11px] text-muted sm:block">
+                      Press <kbd className="font-sans">Enter</kbd> to send · <kbd className="font-sans">Shift</kbd> + <kbd className="font-sans">Enter</kbd> for a new line
+                    </span>
+                    <button
+                      onClick={handleSaveDraft}
+                      disabled={busy}
+                      className="ml-auto text-xs font-medium text-muted hover:text-ink-2 disabled:opacity-50"
+                      title="Save this request as a draft to resume later"
+                    >
+                      Save draft
+                    </button>
                   </div>
-                )}
-                {attachments.length > 0 && (
-                  <div className="mb-2 flex flex-wrap gap-2">
-                    {attachments.map((name, i) => (
-                      <span
-                        key={`${name}-${i}`}
-                        className="flex items-center gap-1.5 rounded-lg border border-[var(--grid)] bg-page px-2.5 py-1 text-xs text-ink-2"
-                      >
-                        <Paperclip />
-                        <span className="max-w-[160px] truncate">{name}</span>
-                        <button
-                          onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
-                          className="text-muted hover:text-[var(--critical)]"
-                          title="Remove attachment"
-                          aria-label={`Remove ${name}`}
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={onFilesPicked}
-                />
-                <div className="flex items-end gap-2 rounded-2xl border border-[var(--grid)] bg-page px-3 py-2 focus-within:border-brand">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="pb-1 text-muted hover:text-ink-2"
-                    title="Attach files"
-                  >
-                    <Paperclip />
-                  </button>
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        send(input);
-                      }
-                    }}
-                    rows={1}
-                    placeholder="Type your answer or ask a follow-up question…"
-                    className="max-h-32 flex-1 resize-none bg-transparent py-1 text-sm focus:outline-none"
-                  />
-                  <button
-                    onClick={toggleDictation}
-                    disabled={!speechSupported}
-                    className={`pb-1 transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                      listening ? 'animate-pulse text-[var(--critical)]' : 'text-muted hover:text-ink-2'
-                    }`}
-                    title={
-                      !speechSupported
-                        ? 'Voice input not supported in this browser'
-                        : listening
-                        ? 'Stop dictation'
-                        : 'Dictate with your voice'
-                    }
-                    aria-pressed={listening}
-                  >
-                    <Mic />
-                  </button>
-                  <button
-                    onClick={() => send(input)}
-                    disabled={busy || (!input.trim() && attachments.length === 0)}
-                    className="grid h-8 w-8 place-items-center rounded-lg text-brand hover:bg-[color-mix(in_srgb,var(--brand)_10%,white)] disabled:opacity-40"
-                    title="Send"
-                  >
-                    <Send />
-                  </button>
-                </div>
-                <div className="mt-2 flex justify-end">
-                  <button
-                    onClick={handleSaveDraft}
-                    disabled={busy}
-                    className="text-xs font-medium text-muted hover:text-ink-2 disabled:opacity-50"
-                    title="Save progress and resume later"
-                  >
-                    Save draft
-                  </button>
                 </div>
               </div>
             )}
@@ -496,41 +524,11 @@ export function ChatView({
 
       {/* ── Right rail: progress, prompts, insights ─────────────────── */}
       <aside className="hidden w-72 shrink-0 flex-col gap-2.5 overflow-hidden border-l border-[var(--grid)] bg-surface p-3 xl:flex">
-        <ProgressCard step={c?.step} missing={view?.missingMandatory.length ?? 7} />
-
-        <Card title="Suggested prompts">
-          <div className="space-y-1">
-            {SUGGESTED_PROMPTS.map((p) => (
-              <button
-                key={p}
-                disabled={busy || !c || c.step === 'submitted'}
-                onClick={() => send(p)}
-                className="flex w-full items-center justify-between gap-2 rounded-md border border-[var(--grid)] px-2.5 py-1.5 text-left text-xs leading-snug text-ink-2 transition hover:border-brand hover:text-brand disabled:opacity-50"
-              >
-                <span>{p}</span>
-                <span className="shrink-0 text-muted">→</span>
-              </button>
-            ))}
-          </div>
-        </Card>
-
-        <Card title="Insights you can ask">
-          <div className="space-y-1.5">
-            {INSIGHTS.map((p) => (
-              <button
-                key={p}
-                disabled={busy || !c || c.step === 'submitted'}
-                onClick={() => send(p)}
-                className="flex w-full items-center gap-2 text-left text-xs text-ink-2 hover:text-brand disabled:opacity-50"
-              >
-                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[color-mix(in_srgb,var(--brand)_10%,white)] text-[10px] text-brand">
-                  ◈
-                </span>
-                <span>{p}</span>
-              </button>
-            ))}
-          </div>
-        </Card>
+        <RequestTypeCard
+          current={c?.requestType}
+          disabled={busy || !c || c?.step === 'submitted'}
+          onSelect={selectRequestType}
+        />
       </aside>
 
       {guideOpen && <IntakeGuideModal onClose={() => setGuideOpen(false)} />}
@@ -638,125 +636,58 @@ function GuideItem({ term, desc }: { term: string; desc: string }) {
   );
 }
 
-/* ── Right-rail intake progress ─────────────────────────────────────── */
-function ProgressCard({ step, missing }: { step?: ConversationStep; missing: number }) {
-  const current = computeStep(step, missing); // 1-based
-  const done = step === 'submitted';
-  const pct = done ? 100 : Math.round(((current - 1) / (INTAKE_STEPS.length - 1)) * 100);
-
-  return (
-    <Card
-      title="Intake Progress"
-      right={<span className="text-xs text-muted">Step {Math.min(current, INTAKE_STEPS.length)} of {INTAKE_STEPS.length}</span>}
-    >
-      <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--grid)]">
-        <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <ol className="space-y-1">
-        {INTAKE_STEPS.map((step, i) => {
-          const state = done || i < current - 1 ? 'done' : i === current - 1 ? 'active' : 'todo';
-          return (
-            <li key={step.label} className="flex items-center gap-2" title={step.info}>
-              <span
-                className={`grid h-4 w-4 shrink-0 place-items-center rounded-full text-[9px] font-semibold ${
-                  state === 'done'
-                    ? 'bg-[var(--good-text)] text-white'
-                    : state === 'active'
-                    ? 'bg-brand text-white'
-                    : 'bg-[var(--grid)] text-muted'
-                }`}
-              >
-                {state === 'done' ? '✓' : i + 1}
-              </span>
-              <span
-                className={`cursor-help text-xs ${
-                  state === 'active' ? 'font-semibold text-brand' : state === 'done' ? 'text-ink' : 'text-muted'
-                }`}
-              >
-                {step.label}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </Card>
-  );
-}
-
-// Map conversation state to a believable 1-based step in the 8-step rail.
-function computeStep(step: ConversationStep | undefined, missing: number): number {
-  switch (step) {
-    case 'confirm_type':
-      return 2;
-    case 'questioning': {
-      const total = 7;
-      const captured = Math.max(0, total - missing);
-      return Math.min(6, 3 + Math.floor((captured / total) * 4));
-    }
-    case 'duplicate_decision':
-      return 7;
-    case 'confirmation':
-    case 'submitted':
-      return 8;
-    default:
-      return 1; // classify / unknown
-  }
-}
-
-/* ── Left-rail conversation section ─────────────────────────────────── */
-function ConvSection({
-  title,
-  items,
-  activeId,
-  onOpen,
-  count,
-  empty,
+/* ── Right-rail request-type selector ───────────────────────────────── */
+function RequestTypeCard({
+  current,
+  disabled,
+  onSelect,
 }: {
-  title: string;
-  items: ConversationSummary[];
-  activeId: string | null;
-  onOpen: (id: string) => void;
-  count?: number;
-  empty?: string;
+  current?: RequestType;
+  disabled: boolean;
+  onSelect: (rt: RequestType) => void;
 }) {
   return (
-    <div className="px-2 pt-5">
-      <div className="flex items-center gap-2 px-2 pb-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">{title}</span>
-        {count != null && (
-          <span className="grid h-4 min-w-4 place-items-center rounded-full bg-[var(--grid)] px-1 text-[10px] font-semibold text-ink-2">
-            {count}
-          </span>
-        )}
+    <Card title="Request type">
+      <p className="mb-2 text-[11px] leading-snug text-muted">
+        Pick a request type — the questions adapt to your choice. Switching resets the chat.
+      </p>
+      <div className="space-y-1.5" role="radiogroup" aria-label="Request type">
+        {REQUEST_TYPE_OPTIONS.map((o) => {
+          const selected = current === o.value;
+          const isDisabled = disabled || o.disabled;
+          return (
+            <label
+              key={o.value}
+              title={o.info}
+              className={`flex items-start gap-2.5 rounded-lg border px-2.5 py-2 text-xs transition ${
+                selected
+                  ? 'border-brand bg-[color-mix(in_srgb,var(--brand)_8%,white)]'
+                  : 'border-[var(--grid)]'
+              } ${
+                o.disabled
+                  ? 'cursor-not-allowed opacity-50'
+                  : isDisabled
+                  ? 'cursor-not-allowed opacity-60'
+                  : 'cursor-pointer hover:border-brand'
+              }`}
+            >
+              <input
+                type="radio"
+                name="request-type"
+                className="mt-0.5 accent-[var(--brand)]"
+                checked={selected}
+                disabled={isDisabled}
+                onChange={() => !isDisabled && onSelect(o.value)}
+              />
+              <span className="min-w-0">
+                <span className={selected ? 'font-semibold text-brand' : 'text-ink-2'}>{o.label}</span>
+                {o.disabled && <span className="ml-1 text-[10px] text-muted">(coming soon)</span>}
+              </span>
+            </label>
+          );
+        })}
       </div>
-      {items.length === 0 && empty ? (
-        <p className="px-2 text-xs text-muted">{empty}</p>
-      ) : (
-        <ul className="space-y-0.5">
-          {items.slice(0, 5).map((x) => (
-            <li key={x.id}>
-              <button
-                onClick={() => onOpen(x.id)}
-                className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition ${
-                  x.id === activeId ? 'bg-[color-mix(in_srgb,var(--brand)_10%,white)]' : 'hover:bg-page'
-                }`}
-              >
-                <span className="mt-0.5 shrink-0 text-sm text-muted">▢</span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-ink">{x.title || 'Untitled demand'}</span>
-                    <span className="shrink-0 text-[11px] text-muted">{relTime(x.updatedAt)}</span>
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-muted">
-                    {x.demandType ? x.demandType.replace(/_/g, ' ') : `${x.messageCount} messages`}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+    </Card>
   );
 }
 
@@ -781,17 +712,6 @@ function Card({
   );
 }
 
-function relTime(iso: string): string {
-  const d = new Date(iso);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString())
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const yest = new Date(now);
-  yest.setDate(now.getDate() - 1);
-  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
 function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
@@ -806,6 +726,17 @@ function BotAvatar({ small }: { small?: boolean }) {
         <circle cx="9" cy="14" r="1" fill="currentColor" stroke="none" />
         <circle cx="15" cy="14" r="1" fill="currentColor" stroke="none" />
       </svg>
+    </div>
+  );
+}
+
+function UserAvatar({ name }: { name: string }) {
+  const parts = name.trim().split(/\s+/);
+  const init =
+    ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || 'U';
+  return (
+    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--grid)] text-[11px] font-semibold text-ink-2">
+      {init}
     </div>
   );
 }
